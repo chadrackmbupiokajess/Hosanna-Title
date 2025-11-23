@@ -39,6 +39,9 @@ CONFIG = {
     # --- Transitions ---
     "OVERLAY_TRANSITION_TYPE": "Fade",
     "OVERLAY_TRANSITION_DURATION": 500,
+
+    # --- Formatage du texte ---
+    "MAX_TITLE_LENGTH": 27, # Longueur maximale du titre avant troncature avec "..."
 }
 # ==============================================================================
 # --- FIN DE LA CONFIGURATION ---
@@ -114,6 +117,13 @@ class VmixTitleController:
         except Exception as e:
             print(f"Erreur lors de l'écriture dans le fichier {file_path}: {e}")
 
+    def _format_title_for_display(self, title_text):
+        """Tronque le titre à MAX_TITLE_LENGTH et ajoute '...' si nécessaire."""
+        max_len = self.config["MAX_TITLE_LENGTH"]
+        if len(title_text) > max_len:
+            return title_text[:max_len - 3] + "..."
+        return title_text
+
     def _get_videolist_status(self):
         """Récupère et parse l'état de la VideoList depuis vMix."""
         try:
@@ -153,7 +163,7 @@ class VmixTitleController:
             self.reset_state()
             self.last_title = status["title"]
             self.song_start_time = time.time()
-            # Écrit les nouveaux titres dans les fichiers dès qu'un changement de morceau est détecté
+            # Écrit les titres complets dans les fichiers dès qu'un changement de morceau est détecté
             self._write_title_to_file(self.config["CURRENT_TITLE_FILE"], status["current_item"])
             self._write_title_to_file(self.config["NEXT_TITLE_FILE"], status["next_item"])
 
@@ -161,9 +171,13 @@ class VmixTitleController:
         elapsed = time.time() - self.song_start_time
         remaining = (status["duration"] - status["position"]) / 1000
 
+        # Formatage des titres pour l'affichage
+        display_current_item = self._format_title_for_display(status["current_item"])
+        display_next_item = self._format_title_for_display(status["next_item"])
+
         # Gérer l'overlay "En cours"
         if not self.now_playing_shown and elapsed < self.config["SHOW_NOW_PLAYING_FOR"]:
-            self._update_title(self.config["NOW_PLAYING_INPUT"], text=status["current_item"], image_path=self.config["NOW_PLAYING_IMAGE_PATH"])
+            self._update_title(self.config["NOW_PLAYING_INPUT"], text=display_current_item, image_path=self.config["NOW_PLAYING_IMAGE_PATH"])
             self._toggle_overlay(self.config["NOW_PLAYING_OVERLAY_CHANNEL"], "In", self.config["NOW_PLAYING_INPUT"])
             self.now_playing_shown = True
         elif self.now_playing_shown and elapsed > self.config["SHOW_NOW_PLAYING_FOR"]:
@@ -173,7 +187,7 @@ class VmixTitleController:
         # Gérer l'overlay "À suivre"
         # On affiche "À suivre" seulement si next_item n'est pas vide
         if not self.next_up_shown and remaining < self.config["SHOW_NEXT_UP_WHEN_REMAINING"] and status["next_item"]:
-            self._update_title(self.config["NEXT_UP_INPUT"], text=f"À suivre : {status['next_item']}", image_path=self.config["NEXT_UP_IMAGE_PATH"])
+            self._update_title(self.config["NEXT_UP_INPUT"], text=f"À suivre : {display_next_item}", image_path=self.config["NEXT_UP_IMAGE_PATH"])
             self._toggle_overlay(self.config["NEXT_UP_OVERLAY_CHANNEL"], "In", self.config["NEXT_UP_INPUT"])
             self.next_up_shown = True
             self.next_up_start_time = time.time()
@@ -183,7 +197,7 @@ class VmixTitleController:
             self.next_up_shown = False
 
     def run(self):
-        print("Démarrage du script (version avec titres automatiques et fichiers mis à jour)...")
+        print("Démarrage du script (version avec titres automatiques, fichiers mis à jour et troncature)...")
         while True:
             videolist_status = self._get_videolist_status()
             if videolist_status:
