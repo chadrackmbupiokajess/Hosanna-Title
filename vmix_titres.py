@@ -2,6 +2,8 @@ import requests
 import xml.etree.ElementTree as ET
 import time
 import os
+import tkinter as tk
+from tkinter import simpledialog, messagebox
 
 # ==============================================================================
 # --- CONFIGURATION ---
@@ -9,7 +11,8 @@ import os
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 CONFIG = {
-    "VMIX_URL": "http://192.168.1.193:8088/api/",
+    # L'adresse IP sera demandée à l'utilisateur au démarrage
+    "VMIX_URL": "", # Sera rempli par l'utilisateur
     
     # --- Entrées Titres (Utiliser deux entrées séparées) ---
     "NOW_PLAYING_INPUT": "TitreEnCours",  # Nom/Numéro de l'entrée pour "En Cours"
@@ -51,9 +54,12 @@ class VmixTitleController:
     def __init__(self, config):
         self.config = config
         self.api_url = config["VMIX_URL"]
+        
+        if not self.api_url:
+            raise ValueError("L'URL de vMix n'a pas été configurée. Veuillez fournir l'adresse IP.")
 
         # État
-        self.last_title = "" # Ceci fera référence au titre de la VideoList vMix pour détecter les changements de morceau
+        self.last_title = "" 
         self.now_playing_shown = False
         self.next_up_shown = False
         self.song_start_time = None
@@ -140,9 +146,9 @@ class VmixTitleController:
                     next_item_text = ""
                     for i, item in enumerate(items):
                         if item.attrib.get("selected") == "true":
-                            current_item_text = item.text.split("\\")[-1].split(".")[0] # Extrait du XML
+                            current_item_text = item.text.split("\\")[-1].split(".")[0] 
                             if i + 1 < len(items):
-                                next_item_text = items[i + 1].text.split("\\")[-1].split(".")[0] # Extrait du XML
+                                next_item_text = items[i + 1].text.split("\\")[-1].split(".")[0] 
                             break
                     
                     return {
@@ -158,12 +164,10 @@ class VmixTitleController:
             return None
 
     def process_videolist(self, status):
-        # La détection de changement de chanson se base toujours sur le "title" de la VideoList vMix
         if status["title"] != self.last_title:
             self.reset_state()
             self.last_title = status["title"]
             self.song_start_time = time.time()
-            # Écrit les titres complets dans les fichiers dès qu'un changement de morceau est détecté
             self._write_title_to_file(self.config["CURRENT_TITLE_FILE"], status["current_item"])
             self._write_title_to_file(self.config["NEXT_TITLE_FILE"], status["next_item"])
 
@@ -171,11 +175,9 @@ class VmixTitleController:
         elapsed = time.time() - self.song_start_time
         remaining = (status["duration"] - status["position"]) / 1000
 
-        # Formatage des titres pour l'affichage
         display_current_item = self._format_title_for_display(status["current_item"])
         display_next_item = self._format_title_for_display(status["next_item"])
 
-        # Gérer l'overlay "En cours"
         if not self.now_playing_shown and elapsed < self.config["SHOW_NOW_PLAYING_FOR"]:
             self._update_title(self.config["NOW_PLAYING_INPUT"], text=display_current_item, image_path=self.config["NOW_PLAYING_IMAGE_PATH"])
             self._toggle_overlay(self.config["NOW_PLAYING_OVERLAY_CHANNEL"], "In", self.config["NOW_PLAYING_INPUT"])
@@ -184,8 +186,6 @@ class VmixTitleController:
             self._toggle_overlay(self.config["NOW_PLAYING_OVERLAY_CHANNEL"], "Out", self.config["NOW_PLAYING_INPUT"])
             self.now_playing_shown = False 
 
-        # Gérer l'overlay "À suivre"
-        # On affiche "À suivre" seulement si next_item n'est pas vide
         if not self.next_up_shown and remaining < self.config["SHOW_NEXT_UP_WHEN_REMAINING"] and status["next_item"]:
             self._update_title(self.config["NEXT_UP_INPUT"], text=f"À suivre : {display_next_item}", image_path=self.config["NEXT_UP_IMAGE_PATH"])
             self._toggle_overlay(self.config["NEXT_UP_OVERLAY_CHANNEL"], "In", self.config["NEXT_UP_INPUT"])
@@ -206,6 +206,38 @@ class VmixTitleController:
                 self.reset_state()
             time.sleep(1)
 
+def get_vmix_ip_from_user():
+    """Affiche une fenêtre Tkinter pour demander l'adresse IP de vMix."""
+    root = tk.Tk()
+    root.withdraw() # Cache la fenêtre principale de Tkinter
+
+    ip_address = None
+    while not ip_address:
+        ip_address = simpledialog.askstring(
+            "Configuration vMix", 
+            "Veuillez entrer l'adresse IP de vMix (ex: 192.168.1.193):",
+            parent=root
+        )
+        if ip_address is None: # L'utilisateur a cliqué sur Annuler
+            messagebox.showinfo("Annulation", "Le script a été annulé par l'utilisateur.")
+            return None
+        if not ip_address.strip():
+            messagebox.showerror("Erreur", "L'adresse IP ne peut pas être vide. Veuillez réessayer.")
+            ip_address = None # Réinitialise pour redemander
+
+    root.destroy()
+    return ip_address.strip()
+
 if __name__ == "__main__":
-    controller = VmixTitleController(CONFIG)
-    controller.run()
+    vmix_ip = get_vmix_ip_from_user()
+    if vmix_ip:
+        CONFIG["VMIX_URL"] = f"http://{vmix_ip}:8088/api/"
+        try:
+            controller = VmixTitleController(CONFIG)
+            controller.run()
+        except ValueError as e:
+            messagebox.showerror("Erreur de configuration", str(e))
+        except Exception as e:
+            messagebox.showerror("Erreur inattendue", f"Une erreur est survenue : {e}")
+    else:
+        print("Le script n'a pas pu démarrer sans l'adresse IP de vMix.")
