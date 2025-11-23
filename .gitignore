@@ -1,0 +1,14 @@
+# Fichiers générés par le script
+next_title.txt
+current_title.txt
+playlist_info.txt
+
+# Dossiers et fichiers de l'IDE
+.idea/
+
+# Fichiers Python compilés et cache
+__pycache__/
+*.pyc
+
+# Fichiers de log
+*.log
